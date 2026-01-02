@@ -1,3 +1,7 @@
+# DylanFromMassey specific notes
+
+Configuration for DNSK-P11
+
 # Overview
 
 An open source alternative for the Panasonic wi-fi adapter that works locally without the cloud.
