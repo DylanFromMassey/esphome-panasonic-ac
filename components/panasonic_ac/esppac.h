@@ -4,6 +4,7 @@
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/core/component.h"
 
@@ -11,7 +12,7 @@ namespace esphome {
 
 namespace panasonic_ac {
 
-static const char *const VERSION = "2.5.0";
+static const char *const VERSION = "2.5.1";
 
 static const uint8_t BUFFER_SIZE = 128;  // The maximum size of a single packet (both receive and transmit)
 static const uint8_t READ_TIMEOUT = 20;  // The maximum time to wait before considering a packet complete
@@ -33,6 +34,7 @@ enum class ACType {
 class PanasonicAC : public Component, public uart::UARTDevice, public climate::Climate {
  public:
   void set_outside_temperature_sensor(sensor::Sensor *outside_temperature_sensor);
+  void set_outside_temperature_offset(int8_t outside_temperature_offset);
   void set_vertical_swing_select(select::Select *vertical_swing_select);
   void set_horizontal_swing_select(select::Select *horizontal_swing_select);
   void set_nanoex_switch(switch_::Switch *nanoex_switch);
@@ -40,8 +42,10 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   void set_econavi_switch(switch_::Switch *econavi_switch);
   void set_mild_dry_switch(switch_::Switch *mild_dry_switch);
   void set_current_power_consumption_sensor(sensor::Sensor *current_power_consumption_sensor);
+  void set_defrost_sensor(binary_sensor::BinarySensor *defrost_sensor);
 
   void set_current_temperature_sensor(sensor::Sensor *current_temperature_sensor);
+  void set_current_temperature_offset(int8_t current_temperature_offset);
 
   void setup() override;
   void loop() override;
@@ -56,10 +60,13 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   switch_::Switch *mild_dry_switch_ = nullptr;                  // Switch to toggle mild dry mode on/off
   sensor::Sensor *current_temperature_sensor_ = nullptr;        // Sensor to use for current temperature where AC does not report
   sensor::Sensor *current_power_consumption_sensor_ = nullptr;  // Sensor to store current power consumption from queries
+  binary_sensor::BinarySensor *defrost_sensor_ = nullptr;       // Sensor to store defrost status
 
-  std::string vertical_swing_state_;
-  std::string horizontal_swing_state_;
+  size_t vertical_swing_state_;
+  size_t horizontal_swing_state_;
 
+  int8_t current_temperature_offset_ = 0;  // current temperature offset to compensate internal sensor values
+  int8_t outside_temperature_offset_ = 0;  // outside temperature offset to compensate internal sensor values
   bool nanoex_state_ = false;    // Stores the state of nanoex to prevent duplicate packets
   bool eco_state_ = false;       // Stores the state of eco to prevent duplicate packets
   bool econavi_state_ = false;       // Stores the state of econavi to prevent duplicate packets
@@ -84,16 +91,17 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   void update_outside_temperature(int8_t temperature);
   void update_current_temperature(int8_t temperature);
   void update_target_temperature(uint8_t raw_value);
-  void update_swing_horizontal(const std::string &swing);
-  void update_swing_vertical(const std::string &swing);
+  void update_swing_horizontal(const StringRef &swing);
+  void update_swing_vertical(const StringRef &swing);
   void update_nanoex(bool nanoex);
   void update_eco(bool eco);
   void update_econavi(bool econavi);
   void update_mild_dry(bool mild_dry);
   void update_current_power_consumption(int16_t power);
+  void update_defrost(bool defrost);
 
-  virtual void on_horizontal_swing_change(const std::string &swing) = 0;
-  virtual void on_vertical_swing_change(const std::string &swing) = 0;
+  virtual void on_horizontal_swing_change(const StringRef &swing) = 0;
+  virtual void on_vertical_swing_change(const StringRef &swing) = 0;
   virtual void on_nanoex_change(bool nanoex) = 0;
   virtual void on_eco_change(bool eco) = 0;
   virtual void on_econavi_change(bool econavi) = 0;

@@ -46,3 +46,9 @@ climate:
       name: Panasonic AC Outside Temperature
     nanoex_switch:
       name: Panasonic AC NanoeX Switch
+    defrost_sensor:
+      name: Panasonic AC Defrost Status
+
+    # Adapt according to your measurements
+    # current_temperature_offset: 0
+    # outside_temperature_offset: 0
