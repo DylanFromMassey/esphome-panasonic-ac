@@ -47,7 +47,8 @@ class PanasonicACWLAN : public PanasonicAC {
   const uint8_t *last_command_;  // Stores a pointer to the last command we executed
   size_t last_command_length_;   // Stores the length of the last command we executed
 
-  uint8_t set_queue_[16][2];     // Queue to store the key/value for the set commands
+  uint8_t last_fan_speed_ = 0x41;  // Last fan speed byte reported by the AC (0x41 = automatic)
+  uint8_t set_queue_[16][3];       // Queue to store key/value/flag for the set commands
   uint8_t set_queue_index_ = 0;  // Stores the index of the next key/value set
 
   void handle_init_packets();
@@ -63,7 +64,7 @@ class PanasonicACWLAN : public PanasonicAC {
 
   void handle_resend();
 
-  void set_value(uint8_t key, uint8_t value);
+  void set_value(uint8_t key, uint8_t value, uint8_t flag = 0x00);
 };
 
 }  // namespace WLAN
