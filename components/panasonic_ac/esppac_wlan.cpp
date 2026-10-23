@@ -128,6 +128,16 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
       set_value(0xB0, determine_mode_value(this->mode), 0x02);
     }
     set_value(0x31, raw_temperature, 0x02);
+
+    // The AC silently drops a set packet whose final pair is the temperature key: the last pair's
+    // flag byte is overwritten by the checksum, and 0x31 is the one key this unit validates there.
+    // Measured on hardware: temperature alone (last pair) is ignored with no ack at all, while the
+    // same value is acked and applied as soon as any pair follows it. Repeat the current fan speed
+    // as a no-op trailer so the temperature pair is never last. Skipped when this call already
+    // changes the fan speed, because that queues 0xA0 itself.
+    if (!call.has_custom_fan_mode()) {
+      set_value(0xA0, this->last_fan_speed_, 0x00);
+    }
   }
 
   if (call.has_custom_fan_mode()) {
@@ -543,7 +553,8 @@ void PanasonicACWLAN::handle_packet() {
           break;
         case 0xA0:  // Fan speed
           ESP_LOGV(TAG, "Received fan speed");
-          this->set_custom_fan_mode_(determine_fan_speed(this->rx_buffer_[currentIndex + 2]));
+          this->last_fan_speed_ = this->rx_buffer_[currentIndex + 2];
+          this->set_custom_fan_mode_(determine_fan_speed(this->last_fan_speed_));
           break;
         case 0xB2:  // Preset
           ESP_LOGV(TAG, "Received preset");
