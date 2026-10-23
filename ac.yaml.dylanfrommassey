@@ -38,16 +38,16 @@ climate:
   - platform: panasonic_ac
     type: wlan
     name: Panasonic AC
-    horizontal_swing_select:
-      name: Panasonic AC Horizontal Swing Mode
+    #horizontal_swing_select:
+    #  name: Panasonic AC Horizontal Swing Mode
     vertical_swing_select:
       name: Panasonic AC Vertical Swing Mode
     outside_temperature:
       name: Panasonic AC Outside Temperature
     nanoex_switch:
       name: Panasonic AC NanoeX Switch
-    defrost_sensor:
-      name: Panasonic AC Defrost Status
+    #defrost_sensor:
+    #  name: Panasonic AC Defrost Status
 
     # Adapt according to your measurements
     # current_temperature_offset: 0
