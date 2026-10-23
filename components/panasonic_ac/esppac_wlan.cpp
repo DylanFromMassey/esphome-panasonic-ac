@@ -7,6 +7,8 @@ namespace esphome {
 namespace panasonic_ac {
 namespace WLAN {
 
+static uint8_t determine_mode_value(climate::ClimateMode mode);
+
 static const char *const TAG = "panasonic_ac.dnskp11";
 
 void PanasonicACWLAN::setup() {
@@ -111,8 +113,21 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
   }
 
   if (call.get_target_temperature().has_value()) {
-    ESP_LOGV(TAG, "Requested target temp change to %.2f, %.2f including offset", *call.get_target_temperature(), *call.get_target_temperature() - this->current_temperature_offset_);
-    set_value(0x31, (*call.get_target_temperature() - this->current_temperature_offset_) * 2);
+    const uint8_t raw_temperature =
+        (*call.get_target_temperature() - this->current_temperature_offset_) * 2;
+
+    ESP_LOGV(TAG, "Requested target temp change to %.2f, %.2f including offset (raw 0x%02X)",
+             *call.get_target_temperature(),
+             *call.get_target_temperature() - this->current_temperature_offset_, raw_temperature);
+
+    // A set packet that carries the temperature key (0x31) on its own is ignored by the AC, and
+    // so is one where the accompanying keys use the default 0x00 flag byte. The original adapter
+    // always sends the current mode key (0xB0) with flag 0x02 directly before the temperature
+    // key, so mirror that layout here instead of sending 0x31 alone.
+    if (this->mode != climate::CLIMATE_MODE_OFF) {
+      set_value(0xB0, determine_mode_value(this->mode), 0x02);
+    }
+    set_value(0x31, raw_temperature, 0x02);
   }
 
   if (call.has_custom_fan_mode()) {
@@ -299,6 +314,23 @@ bool PanasonicACWLAN::verify_packet() {
 /*
  * Field handling
  */
+
+static uint8_t determine_mode_value(climate::ClimateMode mode) {
+  switch (mode) {
+    case climate::CLIMATE_MODE_HEAT_COOL:
+      return 0x41;
+    case climate::CLIMATE_MODE_COOL:
+      return 0x42;
+    case climate::CLIMATE_MODE_HEAT:
+      return 0x43;
+    case climate::CLIMATE_MODE_DRY:
+      return 0x44;
+    case climate::CLIMATE_MODE_FAN_ONLY:
+      return 0x45;
+    default:
+      return 0x00;
+  }
+}
 
 static climate::ClimateMode determine_mode(uint8_t mode) {
   switch (mode)  // Check mode
@@ -654,7 +686,7 @@ void PanasonicACWLAN::send_set_command() {
     packet[12 + (i * 4) + 1] = 0x01;                    // Unknown, always 0x01
     packet[12 + (i * 4) + 2] = this->set_queue_[i][1];  // Value
     packet[12 + (i * 4) + 3] =
-        0x00;  // Unknown, either 0x00 or 0x01 or 0x02; overwritten by checksum on last key value pair
+        this->set_queue_[i][2];  // Flag byte, either 0x00 or 0x02; overwritten by checksum on last key value pair
   }
 
   send_packet(packet, CommandType::Normal);
@@ -733,7 +765,7 @@ void PanasonicACWLAN::handle_resend() {
   }
 }
 
-void PanasonicACWLAN::set_value(uint8_t key, uint8_t value) {
+void PanasonicACWLAN::set_value(uint8_t key, uint8_t value, uint8_t flag) {
   if (this->set_queue_index_ >= 15) {
     ESP_LOGE(TAG, "Set queue overflow");
     this->set_queue_index_ = 0;
@@ -742,6 +774,7 @@ void PanasonicACWLAN::set_value(uint8_t key, uint8_t value) {
 
   this->set_queue_[this->set_queue_index_][0] = key;
   this->set_queue_[this->set_queue_index_][1] = value;
+  this->set_queue_[this->set_queue_index_][2] = flag;
   this->set_queue_index_++;
 }
 
