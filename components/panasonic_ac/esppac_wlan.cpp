@@ -845,6 +845,11 @@ void PanasonicACWLAN::on_nanoex_change(bool state) {
     set_value(0x33, 0x42);  // nanoeX off
   }
 
+  // Same failure mode as the setpoint: 0x33 is validated by the AC and is dropped when it lands in
+  // the last pair, where the flag byte is overwritten by the checksum. Repeat the current fan speed
+  // as a no-op trailer so the nanoeX pair is never last.
+  set_value(0xA0, this->last_fan_speed_, 0x00);
+
   send_set_command();
 }
 
