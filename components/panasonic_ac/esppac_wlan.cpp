@@ -176,17 +176,15 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
         break;
       case climate::CLIMATE_SWING_OFF:
         set_value(0xA1, 0x42);
-        set_value(0xA4, 0x43);
-        set_value(0xA5, 0x43);
-        set_value(0x35, 0x42);
         break;
       case climate::CLIMATE_SWING_VERTICAL:
+        // Only touch the swing-mode key. Writing 0xA5 here would re-centre the
+        // horizontal louver the user picked (measured: setting swing VERTICAL
+        // snapped A5 back to 0x43 centre).
         set_value(0xA1, 0x43);
-        set_value(0xA5, 0x43);
         break;
       case climate::CLIMATE_SWING_HORIZONTAL:
         set_value(0xA1, 0x44);
-        set_value(0xA4, 0x43);
         break;
       default:
         ESP_LOGV(TAG, "Unsupported swing mode requested");
@@ -201,16 +199,10 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
 
     if (preset == "Normal") {
       set_value(0xB2, 0x41);
-      set_value(0x35, 0x42);
-      set_value(0x34, 0x42);
     } else if (preset == "Powerful") {
       set_value(0xB2, 0x42);
-      set_value(0x35, 0x42);
-      set_value(0x34, 0x42);
     } else if (preset == "Quiet") {
       set_value(0xB2, 0x43);
-      set_value(0x35, 0x42);
-      set_value(0x34, 0x42);
     } else
       ESP_LOGV(TAG, "Unsupported preset requested");
   }
@@ -494,6 +486,11 @@ void PanasonicACWLAN::handle_packet() {
 
     update_nanoex(nanoex);
 
+    // Key 0x34 discriminates iAUTO-X (0x43) from plain auto (0x42); its value
+    // sits at offset 54 in the 125-byte query response (pairs start at 11,
+    // stride 4, value at +2).
+    update_iautox(this->rx_buffer_[54] == 0x43);
+
     this->set_custom_fan_mode_(determine_fan_speed(this->rx_buffer_[26]));
     this->set_custom_preset_(determine_preset(this->rx_buffer_[42]));
 
@@ -578,6 +575,10 @@ void PanasonicACWLAN::handle_packet() {
           ESP_LOGV(TAG, "Received nanoex state");
 
           update_nanoex(determine_nanoex(this->rx_buffer_[currentIndex + 2]));
+          break;
+        case 0x34:  // iAUTO-X flag (0x43 = iAUTO-X, 0x42 = plain auto)
+          ESP_LOGV(TAG, "Received iAUTO-X state");
+          update_iautox(this->rx_buffer_[currentIndex + 2] == 0x43);
           break;
         case 0x20:
           ESP_LOGV(TAG, "Received unknown nanoex field");
@@ -839,10 +840,54 @@ void PanasonicACWLAN::on_nanoex_change(bool state) {
 
   if (state) {
     ESP_LOGV(TAG, "Turning nanoex on");
-    set_value(0x33, 0x45);  // nanoeX on
+    // Measured on hardware (CS-Z42XKRW): the AC only acts on nanoeX when BOTH
+    // 0x33 and 0x20 are written in the same packet, and it reports 0x43 for on.
+    // Writing 0x33 alone is acked and silently discarded.
+    set_value(0x33, 0x43);  // nanoeX on
+    set_value(0x20, 0x43);  // nanoeX companion key, must match 0x33
   } else {
     ESP_LOGV(TAG, "Turning nanoex off");
     set_value(0x33, 0x42);  // nanoeX off
+    set_value(0x20, 0x42);  // companion key, otherwise the AC ignores 0x33
+  }
+
+  send_set_command();
+}
+
+void PanasonicACWLAN::raw_set(uint8_t key, uint8_t value, uint8_t flag) {
+  if (this->state_ != ACState::Ready)
+    return;
+
+  ESP_LOGW(TAG, "RAW set 0x%02X = 0x%02X (flag 0x%02X)", key, value, flag);
+  set_value(key, value, flag);
+  send_set_command();
+}
+
+void PanasonicACWLAN::raw_set2(uint8_t key1, uint8_t value1, uint8_t key2, uint8_t value2, uint8_t flag) {
+  if (this->state_ != ACState::Ready)
+    return;
+
+  ESP_LOGW(TAG, "RAW set 0x%02X = 0x%02X, 0x%02X = 0x%02X (flag 0x%02X)", key1, value1, key2, value2, flag);
+  set_value(key1, value1, flag);
+  set_value(key2, value2, flag);
+  send_set_command();
+}
+
+void PanasonicACWLAN::on_iautox_change(bool state) {
+  if (this->state_ != ACState::Ready)
+    return;
+
+  // iAUTO-X and plain AUTO share mode byte 0xB0 = 0x41; the discriminator is
+  // key 0x34 (0x43 = iAUTO-X, 0x42 = plain auto). Verified by pressing the
+  // iAUTO-X button on the IR remote while capturing reports.
+  if (state) {
+    ESP_LOGV(TAG, "Turning iAUTO-X on");
+    set_value(0xB0, 0x41);  // mode auto
+    set_value(0x34, 0x43);  // iAUTO-X flag
+    set_value(0x80, 0x30);  // power on
+  } else {
+    ESP_LOGV(TAG, "Turning iAUTO-X off");
+    set_value(0x34, 0x42);  // back to plain auto
   }
 
   send_set_command();

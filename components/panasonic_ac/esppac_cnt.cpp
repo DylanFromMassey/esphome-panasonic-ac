@@ -577,6 +577,12 @@ void PanasonicACCNT::on_nanoex_change(bool state) {
   }
 }
 
+void PanasonicACCNT::on_iautox_change(bool state) {
+  // iAUTO-X is only decoded for the DNSK-P11 (WLAN) protocol; the CNT adapter
+  // reports auto mode without a separate iAUTO-X flag.
+  ESP_LOGV(TAG, "iAUTO-X not supported on CNT adapter");
+}
+
 void PanasonicACCNT::on_eco_change(bool state) {
   if (this->state_ != ACState::Ready)
     return;

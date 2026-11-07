@@ -24,6 +24,7 @@ class PanasonicACCNT : public PanasonicAC {
   void on_horizontal_swing_change(const StringRef &swing) override;
   void on_vertical_swing_change(const StringRef &swing) override;
   void on_nanoex_change(bool nanoex) override;
+  void on_iautox_change(bool iautox) override;
   void on_eco_change(bool eco) override;
   void on_econavi_change(bool eco) override;
   void on_mild_dry_change(bool mild_dry) override;

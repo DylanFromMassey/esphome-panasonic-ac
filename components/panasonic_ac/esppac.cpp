@@ -129,6 +129,19 @@ void PanasonicAC::update_nanoex(bool nanoex) {
     this->nanoex_state_ = nanoex;
     this->nanoex_switch_->publish_state(this->nanoex_state_);
   }
+  if (this->nanoex_status_ != nullptr) {
+    this->nanoex_status_->publish_state(nanoex);
+  }
+}
+
+void PanasonicAC::update_iautox(bool iautox) {
+  if (this->iautox_switch_ != nullptr) {
+    this->iautox_state_ = iautox;
+    this->iautox_switch_->publish_state(this->iautox_state_);
+  }
+  if (this->iautox_status_ != nullptr) {
+    this->iautox_status_->publish_state(iautox);
+  }
 }
 
 void PanasonicAC::update_eco(bool eco) {
@@ -244,6 +257,23 @@ void PanasonicAC::set_nanoex_switch(switch_::Switch *nanoex_switch) {
     if (state == this->nanoex_state_)
       return;
     this->on_nanoex_change(state);
+  });
+}
+
+void PanasonicAC::set_nanoex_status(binary_sensor::BinarySensor *nanoex_status) {
+  this->nanoex_status_ = nanoex_status;
+}
+
+void PanasonicAC::set_iautox_status(binary_sensor::BinarySensor *iautox_status) {
+  this->iautox_status_ = iautox_status;
+}
+
+void PanasonicAC::set_iautox_switch(switch_::Switch *iautox_switch) {
+  this->iautox_switch_ = iautox_switch;
+  this->iautox_switch_->add_on_state_callback([this](bool state) {
+    if (state == this->iautox_state_)
+      return;
+    this->on_iautox_change(state);
   });
 }
 
