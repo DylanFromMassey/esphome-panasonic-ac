@@ -99,3 +99,12 @@ Examples:
 [Hardware installation for DNSK-P11](README.DNSKP11.md)
 
 [Hardware installation for CZ-TACG1](README.CZTACG1.md)
+
+## Device-specific protocol notes
+
+Measured notes for a **Panasonic CS-Z42XKRW** on the DNSK-P11 (CN-WLAN) adapter:
+framing, full key map, which capabilities actually work, and the traps that cost
+time. See [docs/cs-z42xkrw-protocol.md](docs/cs-z42xkrw-protocol.md).
+
+The genuine adapter captures in `protocol/logic_analyzer/` can be decoded with
+`python3 tools/dsl_decode.py <capture.dsl>`.
