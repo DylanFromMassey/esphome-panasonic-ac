@@ -28,6 +28,15 @@ void PanasonicACWLAN::loop() {
     }
   }
 
+  // Serialise set packets: the protocol is strictly request/response, and sending
+  // a new set while the previous one is still unacked desynchronises the packet
+  // counters (logged as "Correcting shifted tx counter") and can drop commands.
+  // Measured: a burst of 8 commands from HA lost the last one.
+  if (this->pending_set_send_ && this->state_ == ACState::Ready && !this->waiting_for_response_) {
+    this->pending_set_send_ = false;
+    send_set_command();
+  }
+
   if (millis() - this->last_read_ > READ_TIMEOUT &&
       !this->rx_buffer_.empty())  // Check if our read timed out and we received something
   {
@@ -145,23 +154,20 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
 
     const StringRef fanMode = call.get_custom_fan_mode();
 
+    // The genuine adapter's fan command is a single 0xA0 pair (00 A0 01 3x); it
+    // does NOT touch 0xB2. Writing 0xB2=0x41 here used to reset a Powerful/Quiet
+    // preset back to Normal on every fan-speed change (measured).
     if (fanMode == "Automatic") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x41);
     } else if (fanMode == "1") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x32);
     } else if (fanMode == "2") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x33);
     } else if (fanMode == "3") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x34);
     } else if (fanMode == "4") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x35);
     } else if (fanMode == "5") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x36);
     } else
       ESP_LOGV(TAG, "Unsupported fan mode requested");
@@ -175,10 +181,15 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
         set_value(0xA1, 0x41);
         break;
       case climate::CLIMATE_SWING_OFF:
+        // Measured on CS-Z42XKRW: a lone 0xA1 write is silently ignored. The AC
+        // only acts on the swing byte when a louver-position pair travels with it,
+        // and 0x42 (off) additionally requires 0x35=0x42 in the SAME packet (this
+        // is exactly what the genuine adapter sends: 00 A1 01 42 | 00 A5 01 xx |
+        // 02 35 01 42). Consequence: choosing a swing mode re-centres the louver.
         set_value(0xA1, 0x42);
         set_value(0xA4, 0x43);
         set_value(0xA5, 0x43);
-        set_value(0x35, 0x42);
+        set_value(0x35, 0x42, 0x02);
         break;
       case climate::CLIMATE_SWING_VERTICAL:
         set_value(0xA1, 0x43);
@@ -201,16 +212,10 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
 
     if (preset == "Normal") {
       set_value(0xB2, 0x41);
-      set_value(0x35, 0x42);
-      set_value(0x34, 0x42);
     } else if (preset == "Powerful") {
       set_value(0xB2, 0x42);
-      set_value(0x35, 0x42);
-      set_value(0x34, 0x42);
     } else if (preset == "Quiet") {
       set_value(0xB2, 0x43);
-      set_value(0x35, 0x42);
-      set_value(0x34, 0x42);
     } else
       ESP_LOGV(TAG, "Unsupported preset requested");
   }
@@ -494,6 +499,11 @@ void PanasonicACWLAN::handle_packet() {
 
     update_nanoex(nanoex);
 
+    // Key 0x34 discriminates iAUTO-X (0x43) from plain auto (0x42); its value
+    // sits at offset 54 in the 125-byte query response (pairs start at 11,
+    // stride 4, value at +2).
+    update_iautox(this->rx_buffer_[54] == 0x43);
+
     this->set_custom_fan_mode_(determine_fan_speed(this->rx_buffer_[26]));
     this->set_custom_preset_(determine_preset(this->rx_buffer_[42]));
 
@@ -578,6 +588,10 @@ void PanasonicACWLAN::handle_packet() {
           ESP_LOGV(TAG, "Received nanoex state");
 
           update_nanoex(determine_nanoex(this->rx_buffer_[currentIndex + 2]));
+          break;
+        case 0x34:  // iAUTO-X flag (0x43 = iAUTO-X, 0x42 = plain auto)
+          ESP_LOGV(TAG, "Received iAUTO-X state");
+          update_iautox(this->rx_buffer_[currentIndex + 2] == 0x43);
           break;
         case 0x20:
           ESP_LOGV(TAG, "Received unknown nanoex field");
@@ -672,6 +686,13 @@ void PanasonicACWLAN::handle_handshake_packet() {
  */
 
 void PanasonicACWLAN::send_set_command() {
+  if (this->waiting_for_response_) {
+    // A set packet is still waiting for its ack; queue these pairs and let loop()
+    // send them as soon as the response lands. Keeps the tx/rx counters in sync.
+    this->pending_set_send_ = true;
+    return;
+  }
+
   // Size of packet is 3 * 4 (for the header, packet size, and key value pair counter)
   // setQueueIndex * 4 for the individual key value pairs
   int packetLength = (3 * 4) + (this->set_queue_index_ * 4);
@@ -690,14 +711,19 @@ void PanasonicACWLAN::send_set_command() {
   packet[8] = 0x30;  // Key value pair counter header
   packet[9] = 0x01;
   packet[10] = this->set_queue_index_;  // Key value pair counter
-  packet[11] = 0x00;
 
+  // Wire layout is [flag][key][0x01][value] per pair, starting at byte 11, so the
+  // flag byte belongs to the pair that follows it. The original adapter's captures
+  // show flags of 0x00 and 0x02 on individual pairs (e.g. nanoeX off is
+  // 02 33 01 42, temperature is 02 31 01 xx). Writing the flag after the value
+  // instead silently shifted it into the next pair's slot, which made it
+  // impossible to set a flag on the last (or only) pair — a single-pair write
+  // always went out as flag 0x00, which the AC accepts and then ignores.
   for (int i = 0; i < this->set_queue_index_; i++) {
-    packet[12 + (i * 4) + 0] = this->set_queue_[i][0];  // Key
-    packet[12 + (i * 4) + 1] = 0x01;                    // Unknown, always 0x01
-    packet[12 + (i * 4) + 2] = this->set_queue_[i][1];  // Value
-    packet[12 + (i * 4) + 3] =
-        this->set_queue_[i][2];  // Flag byte, either 0x00 or 0x02; overwritten by checksum on last key value pair
+    packet[11 + (i * 4) + 0] = this->set_queue_[i][2];  // Flag byte (0x00 or 0x02)
+    packet[11 + (i * 4) + 1] = this->set_queue_[i][0];  // Key
+    packet[11 + (i * 4) + 2] = 0x01;                    // Unknown, always 0x01
+    packet[11 + (i * 4) + 3] = this->set_queue_[i][1];  // Value
   }
 
   send_packet(packet, CommandType::Normal);
@@ -839,10 +865,53 @@ void PanasonicACWLAN::on_nanoex_change(bool state) {
 
   if (state) {
     ESP_LOGV(TAG, "Turning nanoex on");
-    set_value(0x33, 0x45);  // nanoeX on
+    // Genuine adapter capture (protocol/logic_analyzer/controller/nanoe_off_on.dsl):
+    //   on  -> 10.08 01 01 30 01 01 02 33 01 45
+    //   off -> 10.08 01 01 30 01 01 02 33 01 42
+    // Single pair, flag byte 0x02. The AC reports 0x43 for on and 0x42 for off.
+    set_value(0x33, 0x45, 0x02);  // nanoeX on
   } else {
     ESP_LOGV(TAG, "Turning nanoex off");
-    set_value(0x33, 0x42);  // nanoeX off
+    set_value(0x33, 0x42, 0x02);  // nanoeX off
+  }
+
+  send_set_command();
+}
+
+void PanasonicACWLAN::raw_set(uint8_t key, uint8_t value, uint8_t flag) {
+  if (this->state_ != ACState::Ready)
+    return;
+
+  ESP_LOGW(TAG, "RAW set 0x%02X = 0x%02X (flag 0x%02X)", key, value, flag);
+  set_value(key, value, flag);
+  send_set_command();
+}
+
+void PanasonicACWLAN::raw_set2(uint8_t key1, uint8_t value1, uint8_t key2, uint8_t value2, uint8_t flag) {
+  if (this->state_ != ACState::Ready)
+    return;
+
+  ESP_LOGW(TAG, "RAW set 0x%02X = 0x%02X, 0x%02X = 0x%02X (flag 0x%02X)", key1, value1, key2, value2, flag);
+  set_value(key1, value1, flag);
+  set_value(key2, value2, flag);
+  send_set_command();
+}
+
+void PanasonicACWLAN::on_iautox_change(bool state) {
+  if (this->state_ != ACState::Ready)
+    return;
+
+  // iAUTO-X and plain AUTO share mode byte 0xB0 = 0x41; the discriminator is
+  // key 0x34 (0x43 = iAUTO-X, 0x42 = plain auto). The genuine adapter sends
+  // 0x34 with flag 0x02 (see quiet_on_off_powerful_on_off.dsl: 02 34 01 42).
+  if (state) {
+    ESP_LOGV(TAG, "Turning iAUTO-X on");
+    set_value(0xB0, 0x41);        // mode auto
+    set_value(0x34, 0x43, 0x02);  // iAUTO-X flag
+    set_value(0x80, 0x30);        // power on
+  } else {
+    ESP_LOGV(TAG, "Turning iAUTO-X off");
+    set_value(0x34, 0x42, 0x02);  // back to plain auto
   }
 
   send_set_command();

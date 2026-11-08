@@ -28,9 +28,16 @@ class PanasonicACWLAN : public PanasonicAC {
  public:
   void control(const climate::ClimateCall &call) override;
 
+  // Development hook: write arbitrary key/value pairs to the AC over the UART
+  // protocol, used to probe undefined behaviour (nanoeX / iAUTO-X) without a
+  // reflash per candidate. Exposed as api actions in the YAML.
+  void raw_set(uint8_t key, uint8_t value, uint8_t flag);
+  void raw_set2(uint8_t key1, uint8_t value1, uint8_t key2, uint8_t value2, uint8_t flag);
+
   void on_horizontal_swing_change(const StringRef &swing) override;
   void on_vertical_swing_change(const StringRef &swing) override;
   void on_nanoex_change(bool nanoex) override;
+  void on_iautox_change(bool iautox) override;
   void on_eco_change(bool eco) override;
   void on_econavi_change(bool eco) override;
   void on_mild_dry_change(bool mild_dry) override;
@@ -43,6 +50,7 @@ class PanasonicACWLAN : public PanasonicAC {
 
   uint8_t transmit_packet_count_ = 0;  // Counter used in packet (2nd byte) when we are sending packets
   uint8_t receive_packet_count_ = 0;   // Counter used in packet (2nd byte) when AC is sending us packets
+  bool pending_set_send_ = false;      // Set packet queued while waiting for the previous ack
 
   const uint8_t *last_command_;  // Stores a pointer to the last command we executed
   size_t last_command_length_;   // Stores the length of the last command we executed

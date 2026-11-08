@@ -12,7 +12,7 @@ namespace esphome {
 
 namespace panasonic_ac {
 
-static const char *const VERSION = "2.5.1";
+static const char *const VERSION = "2.6.0";
 
 static const uint8_t BUFFER_SIZE = 128;  // The maximum size of a single packet (both receive and transmit)
 static const uint8_t READ_TIMEOUT = 20;  // The maximum time to wait before considering a packet complete
@@ -38,6 +38,9 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   void set_vertical_swing_select(select::Select *vertical_swing_select);
   void set_horizontal_swing_select(select::Select *horizontal_swing_select);
   void set_nanoex_switch(switch_::Switch *nanoex_switch);
+  void set_nanoex_status(binary_sensor::BinarySensor *nanoex_status);
+  void set_iautox_switch(switch_::Switch *iautox_switch);
+  void set_iautox_status(binary_sensor::BinarySensor *iautox_status);
   void set_eco_switch(switch_::Switch *eco_switch);
   void set_econavi_switch(switch_::Switch *econavi_switch);
   void set_mild_dry_switch(switch_::Switch *mild_dry_switch);
@@ -55,6 +58,9 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   select::Select *vertical_swing_select_ = nullptr;             // Select to store manual position of vertical swing
   select::Select *horizontal_swing_select_ = nullptr;           // Select to store manual position of horizontal swing
   switch_::Switch *nanoex_switch_ = nullptr;                    // Switch to toggle nanoeX on/off
+  binary_sensor::BinarySensor *nanoex_status_ = nullptr;        // Read-only nanoeX status (writes are ignored by the AC)
+  switch_::Switch *iautox_switch_ = nullptr;                    // Switch to toggle iAUTO-X on/off
+  binary_sensor::BinarySensor *iautox_status_ = nullptr;        // Read-only iAUTO-X status (writes are ignored by the AC)
   switch_::Switch *eco_switch_ = nullptr;                       // Switch to toggle eco mode on/off
   switch_::Switch *econavi_switch_ = nullptr;                   // Switch to toggle econavi mode on/off
   switch_::Switch *mild_dry_switch_ = nullptr;                  // Switch to toggle mild dry mode on/off
@@ -68,6 +74,7 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   int8_t current_temperature_offset_ = 0;  // current temperature offset to compensate internal sensor values
   int8_t outside_temperature_offset_ = 0;  // outside temperature offset to compensate internal sensor values
   bool nanoex_state_ = false;    // Stores the state of nanoex to prevent duplicate packets
+  bool iautox_state_ = false;    // Stores the state of iAUTO-X (key 0x34 = 0x43) to prevent duplicate packets
   bool eco_state_ = false;       // Stores the state of eco to prevent duplicate packets
   bool econavi_state_ = false;       // Stores the state of econavi to prevent duplicate packets
   bool mild_dry_state_ = false;  // Stores the state of mild dry to prevent duplicate packets
@@ -94,6 +101,7 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   void update_swing_horizontal(const StringRef &swing);
   void update_swing_vertical(const StringRef &swing);
   void update_nanoex(bool nanoex);
+  void update_iautox(bool iautox);
   void update_eco(bool eco);
   void update_econavi(bool econavi);
   void update_mild_dry(bool mild_dry);
@@ -103,6 +111,7 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   virtual void on_horizontal_swing_change(const StringRef &swing) = 0;
   virtual void on_vertical_swing_change(const StringRef &swing) = 0;
   virtual void on_nanoex_change(bool nanoex) = 0;
+  virtual void on_iautox_change(bool iautox) = 0;
   virtual void on_eco_change(bool eco) = 0;
   virtual void on_econavi_change(bool econavi) = 0;
   virtual void on_mild_dry_change(bool mild_dry) = 0;

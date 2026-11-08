@@ -36,6 +36,9 @@ CONF_OUTSIDE_TEMPERATURE_OFFSET = "outside_temperature_offset"
 CONF_CURRENT_TEMPERATURE_SENSOR = "current_temperature_sensor"
 CONF_CURRENT_TEMPERATURE_OFFSET = "current_temperature_offset"
 CONF_NANOEX_SWITCH = "nanoex_switch"
+CONF_NANOEX_STATUS = "nanoex_status"
+CONF_IAUTOX_SWITCH = "iautox_switch"
+CONF_IAUTOX_STATUS = "iautox_status"
 CONF_ECO_SWITCH = "eco_switch"
 CONF_ECONAVI_SWITCH = "econavi_switch"
 CONF_MILD_DRY_SWITCH = "mild_dry_switch"
@@ -63,6 +66,9 @@ PANASONIC_COMMON_SCHEMA = {
     ),
     cv.Optional(CONF_DEFROST_SENSOR): binary_sensor.binary_sensor_schema(),
     cv.Optional(CONF_NANOEX_SWITCH): SWITCH_SCHEMA,
+    cv.Optional(CONF_NANOEX_STATUS): binary_sensor.binary_sensor_schema(),
+    cv.Optional(CONF_IAUTOX_SWITCH): SWITCH_SCHEMA,
+    cv.Optional(CONF_IAUTOX_STATUS): binary_sensor.binary_sensor_schema(),
     cv.Optional(CONF_OUTSIDE_TEMPERATURE_OFFSET): cv.int_range(min=-15, max=15),
     cv.Optional(CONF_CURRENT_TEMPERATURE_OFFSET): cv.int_range(min=-15, max=15),
 }
@@ -116,7 +122,14 @@ async def to_code(config):
     if CONF_OUTSIDE_TEMPERATURE_OFFSET in config:
         cg.add(var.set_outside_temperature_offset(config[CONF_OUTSIDE_TEMPERATURE_OFFSET]))
 
-    for s in [CONF_ECO_SWITCH, CONF_NANOEX_SWITCH, CONF_MILD_DRY_SWITCH, CONF_ECONAVI_SWITCH]:
+    # Read-only mirrors of status keys the AC reports but does not accept writes for.
+    for s in [CONF_NANOEX_STATUS, CONF_IAUTOX_STATUS]:
+        if s in config:
+            conf = config[s]
+            bsens = await binary_sensor.new_binary_sensor(conf)
+            cg.add(getattr(var, f"set_{s}")(bsens))
+
+    for s in [CONF_ECO_SWITCH, CONF_NANOEX_SWITCH, CONF_IAUTOX_SWITCH, CONF_MILD_DRY_SWITCH, CONF_ECONAVI_SWITCH]:
         if s in config:
             conf = config[s]
             a_switch = await switch.new_switch(conf)
