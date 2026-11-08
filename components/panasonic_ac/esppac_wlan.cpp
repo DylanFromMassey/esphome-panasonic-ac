@@ -159,15 +159,15 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
     // preset back to Normal on every fan-speed change (measured).
     if (fanMode == "Automatic") {
       set_value(0xA0, 0x41);
-    } else if (fanMode == "1") {
+    } else if (fanMode == "Speed 1") {
       set_value(0xA0, 0x32);
-    } else if (fanMode == "2") {
+    } else if (fanMode == "Speed 2") {
       set_value(0xA0, 0x33);
-    } else if (fanMode == "3") {
+    } else if (fanMode == "Speed 3") {
       set_value(0xA0, 0x34);
-    } else if (fanMode == "4") {
+    } else if (fanMode == "Speed 4") {
       set_value(0xA0, 0x35);
-    } else if (fanMode == "5") {
+    } else if (fanMode == "Speed 5") {
       set_value(0xA0, 0x36);
     } else
       ESP_LOGV(TAG, "Unsupported fan mode requested");
@@ -369,15 +369,15 @@ static climate::ClimateMode determine_mode(uint8_t mode) {
 static const char *determine_fan_speed(uint8_t speed) {
   switch (speed) {
     case 0x32:  // 1
-      return "1";
+      return "Speed 1";
     case 0x33:  // 2
-      return "2";
+      return "Speed 2";
     case 0x34:  // 3
-      return "3";
+      return "Speed 3";
     case 0x35:  // 4
-      return "4";
+      return "Speed 4";
     case 0x36:  // 5
-      return "5";
+      return "Speed 5";
     case 0x41:  // Auto
       return "Automatic";
     default:
@@ -507,7 +507,7 @@ void PanasonicACWLAN::handle_packet() {
     this->set_custom_fan_mode_(determine_fan_speed(this->rx_buffer_[26]));
     this->set_custom_preset_(determine_preset(this->rx_buffer_[42]));
 
-    this->swing_mode = determine_swing(this->rx_buffer_[30]);
+    this->swing_mode = this->apply_swing_mask(determine_swing(this->rx_buffer_[30]));
 
     // climate::ClimateAction action = determine_action(); // Determine the current action of the AC
     // this->action = action;
@@ -572,7 +572,7 @@ void PanasonicACWLAN::handle_packet() {
           break;
         case 0xA1:
           ESP_LOGV(TAG, "Received swing mode");
-          this->swing_mode = determine_swing(this->rx_buffer_[currentIndex + 2]);
+          this->swing_mode = this->apply_swing_mask(determine_swing(this->rx_buffer_[currentIndex + 2]));
           break;
         case 0xA5:  // Horizontal swing position
           ESP_LOGV(TAG, "Received horizontal swing position");

@@ -12,7 +12,7 @@ namespace esphome {
 
 namespace panasonic_ac {
 
-static const char *const VERSION = "2.6.0";
+static const char *const VERSION = "2.7.0";
 
 static const uint8_t BUFFER_SIZE = 128;  // The maximum size of a single packet (both receive and transmit)
 static const uint8_t READ_TIMEOUT = 20;  // The maximum time to wait before considering a packet complete
@@ -37,6 +37,7 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   void set_outside_temperature_offset(int8_t outside_temperature_offset);
   void set_vertical_swing_select(select::Select *vertical_swing_select);
   void set_horizontal_swing_select(select::Select *horizontal_swing_select);
+  void set_swing_mode_mask(uint8_t mask);
   void set_nanoex_switch(switch_::Switch *nanoex_switch);
   void set_nanoex_status(binary_sensor::BinarySensor *nanoex_status);
   void set_iautox_switch(switch_::Switch *iautox_switch);
@@ -72,6 +73,7 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   size_t horizontal_swing_state_;
 
   int8_t current_temperature_offset_ = 0;  // current temperature offset to compensate internal sensor values
+  uint8_t swing_mode_mask_ = 0x07;  // bit0 both, bit1 vertical, bit2 horizontal; OFF is always allowed
   int8_t outside_temperature_offset_ = 0;  // outside temperature offset to compensate internal sensor values
   bool nanoex_state_ = false;    // Stores the state of nanoex to prevent duplicate packets
   bool iautox_state_ = false;    // Stores the state of iAUTO-X (key 0x34 = 0x43) to prevent duplicate packets
@@ -107,6 +109,8 @@ class PanasonicAC : public Component, public uart::UARTDevice, public climate::C
   void update_mild_dry(bool mild_dry);
   void update_current_power_consumption(int16_t power);
   void update_defrost(bool defrost);
+
+  climate::ClimateSwingMode apply_swing_mask(climate::ClimateSwingMode mode);
 
   virtual void on_horizontal_swing_change(const StringRef &swing) = 0;
   virtual void on_vertical_swing_change(const StringRef &swing) = 0;

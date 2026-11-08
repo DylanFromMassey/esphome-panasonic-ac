@@ -31,6 +31,10 @@ PanasonicACSelect = panasonic_ac_ns.class_(
 
 CONF_HORIZONTAL_SWING_SELECT = "horizontal_swing_select"
 CONF_VERTICAL_SWING_SELECT = "vertical_swing_select"
+CONF_SWING_MODES = "swing_modes"
+
+# "off" is always available; it is accepted in the list only so configs read naturally.
+SWING_MODE_BITS = {"both": 0x01, "vertical": 0x02, "horizontal": 0x04}
 CONF_OUTSIDE_TEMPERATURE = "outside_temperature"
 CONF_OUTSIDE_TEMPERATURE_OFFSET = "outside_temperature_offset"
 CONF_CURRENT_TEMPERATURE_SENSOR = "current_temperature_sensor"
@@ -58,6 +62,13 @@ SELECT_SCHEMA = select.select_schema(PanasonicACSelect)
 PANASONIC_COMMON_SCHEMA = {
     cv.Optional(CONF_HORIZONTAL_SWING_SELECT): SELECT_SCHEMA,
     cv.Optional(CONF_VERTICAL_SWING_SELECT): SELECT_SCHEMA,
+    # Restrict which swing modes this unit advertises. Omit to keep all four
+    # (existing behaviour); e.g. swing_modes: [off, both, horizontal] for a unit
+    # whose vertical louver is adjusted by hand.
+    cv.Optional(CONF_SWING_MODES): cv.All(
+        cv.ensure_list(cv.one_of("off", "both", "vertical", "horizontal")),
+        cv.Length(min=1),
+    ),
     cv.Optional(CONF_OUTSIDE_TEMPERATURE): sensor.sensor_schema(
         unit_of_measurement=UNIT_CELSIUS,
         accuracy_decimals=0,
@@ -110,6 +121,12 @@ async def to_code(config):
         swing_select = await select.new_select(conf, options=VERTICAL_SWING_OPTIONS)
         await cg.register_component(swing_select, conf)
         cg.add(var.set_vertical_swing_select(swing_select))
+
+    if CONF_SWING_MODES in config:
+        mask = 0
+        for mode in config[CONF_SWING_MODES]:
+            mask |= SWING_MODE_BITS.get(mode, 0)
+        cg.add(var.set_swing_mode_mask(mask))
 
     if CONF_OUTSIDE_TEMPERATURE in config:
         sens = await sensor.new_sensor(config[CONF_OUTSIDE_TEMPERATURE])

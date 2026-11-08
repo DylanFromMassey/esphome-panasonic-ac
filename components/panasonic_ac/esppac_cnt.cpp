@@ -38,15 +38,15 @@ static const char *determine_fan_speed(uint8_t speed) {
     case 0xA0:  // Auto
       return "Automatic";
     case 0x30:  // 1
-      return "1";
+      return "Speed 1";
     case 0x40:  // 2
-      return "2";
+      return "Speed 2";
     case 0x50:  // 3
-      return "3";
+      return "Speed 3";
     case 0x60:  // 4
-      return "4";
+      return "Speed 4";
     case 0x70:  // 5
-      return "5";
+      return "Speed 5";
     default:
       ESP_LOGW(TAG, "Received unknown fan speed");
       return "Unknown";
@@ -257,15 +257,15 @@ void PanasonicACCNT::control(const climate::ClimateCall &call) {
 
     if (fanMode == "Automatic")
       this->cmd[3] = 0xA0;
-    else if (fanMode == "1")
+    else if (fanMode == "Speed 1")
       this->cmd[3] = 0x30;
-    else if (fanMode == "2")
+    else if (fanMode == "Speed 2")
       this->cmd[3] = 0x40;
-    else if (fanMode == "3")
+    else if (fanMode == "Speed 3")
       this->cmd[3] = 0x50;
-    else if (fanMode == "4")
+    else if (fanMode == "Speed 4")
       this->cmd[3] = 0x60;
-    else if (fanMode == "5")
+    else if (fanMode == "Speed 5")
       this->cmd[3] = 0x70;
     else
       ESP_LOGV(TAG, "Unsupported fan mode requested");
@@ -372,6 +372,8 @@ void PanasonicACCNT::set_data(bool set) {
     this->swing_mode = climate::CLIMATE_SWING_HORIZONTAL;
   else
     this->swing_mode = climate::CLIMATE_SWING_OFF;
+
+  this->swing_mode = this->apply_swing_mask(this->swing_mode);
 
   this->update_swing_vertical(verticalSwing);
   this->update_swing_horizontal(horizontalSwing);

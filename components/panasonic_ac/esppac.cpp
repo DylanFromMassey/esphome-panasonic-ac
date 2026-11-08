@@ -22,8 +22,16 @@ climate::ClimateTraits PanasonicAC::traits() {
   traits.set_supported_modes({climate::CLIMATE_MODE_OFF, climate::CLIMATE_MODE_HEAT_COOL, climate::CLIMATE_MODE_COOL,
                               climate::CLIMATE_MODE_HEAT, climate::CLIMATE_MODE_FAN_ONLY, climate::CLIMATE_MODE_DRY});
 
-  traits.set_supported_swing_modes({climate::CLIMATE_SWING_OFF, climate::CLIMATE_SWING_BOTH,
-                                    climate::CLIMATE_SWING_VERTICAL, climate::CLIMATE_SWING_HORIZONTAL});
+  // Only advertise swing modes this unit physically supports. Default mask 0x07
+  // keeps all four, so devices without the option configured are unchanged.
+  climate::ClimateSwingModeMask swings{climate::CLIMATE_SWING_OFF};
+  if (this->swing_mode_mask_ & 0x01)
+    swings.insert(climate::CLIMATE_SWING_BOTH);
+  if (this->swing_mode_mask_ & 0x02)
+    swings.insert(climate::CLIMATE_SWING_VERTICAL);
+  if (this->swing_mode_mask_ & 0x04)
+    swings.insert(climate::CLIMATE_SWING_HORIZONTAL);
+  traits.set_supported_swing_modes(swings);
 
   return traits;
 }
@@ -33,7 +41,9 @@ void PanasonicAC::setup() {
   this->init_time_ = millis();
   this->last_packet_sent_ = millis();
 
-  this->set_supported_custom_fan_modes({"Automatic", "1", "2", "3", "4", "5"});
+  // NOTE: do not name these Low/Medium/High/Auto — ESPHome maps those to standard
+  // climate fan modes and drops the request ("Fan Mode MEDIUM not supported").
+  this->set_supported_custom_fan_modes({"Automatic", "Speed 1", "Speed 2", "Speed 3", "Speed 4", "Speed 5"});
   this->set_supported_custom_presets({"Normal", "Powerful", "Quiet"});
 
   ESP_LOGI(TAG, "Panasonic AC component v%s starting...", VERSION);
@@ -249,6 +259,27 @@ void PanasonicAC::set_horizontal_swing_select(select::Select *horizontal_swing_s
       return;
     this->on_horizontal_swing_change(this->horizontal_swing_select_->current_option());
   });
+}
+
+void PanasonicAC::set_swing_mode_mask(uint8_t mask) {
+  ESP_LOGV(TAG, "Supported swing mode mask: 0x%02X", mask);
+  this->swing_mode_mask_ = mask;
+}
+
+// The AC can report a swing state the unit cannot actually produce (e.g. 0x43
+// "vertical" on a unit whose vertical louver is adjusted by hand). Fall back to
+// OFF so the published state stays inside the advertised set.
+climate::ClimateSwingMode PanasonicAC::apply_swing_mask(climate::ClimateSwingMode mode) {
+  switch (mode) {
+    case climate::CLIMATE_SWING_BOTH:
+      return (this->swing_mode_mask_ & 0x01) ? mode : climate::CLIMATE_SWING_OFF;
+    case climate::CLIMATE_SWING_VERTICAL:
+      return (this->swing_mode_mask_ & 0x02) ? mode : climate::CLIMATE_SWING_OFF;
+    case climate::CLIMATE_SWING_HORIZONTAL:
+      return (this->swing_mode_mask_ & 0x04) ? mode : climate::CLIMATE_SWING_OFF;
+    default:
+      return mode;
+  }
 }
 
 void PanasonicAC::set_nanoex_switch(switch_::Switch *nanoex_switch) {
