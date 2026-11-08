@@ -50,6 +50,7 @@ class PanasonicACWLAN : public PanasonicAC {
 
   uint8_t transmit_packet_count_ = 0;  // Counter used in packet (2nd byte) when we are sending packets
   uint8_t receive_packet_count_ = 0;   // Counter used in packet (2nd byte) when AC is sending us packets
+  bool pending_set_send_ = false;      // Set packet queued while waiting for the previous ack
 
   const uint8_t *last_command_;  // Stores a pointer to the last command we executed
   size_t last_command_length_;   // Stores the length of the last command we executed

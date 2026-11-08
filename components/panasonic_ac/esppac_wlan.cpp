@@ -28,6 +28,15 @@ void PanasonicACWLAN::loop() {
     }
   }
 
+  // Serialise set packets: the protocol is strictly request/response, and sending
+  // a new set while the previous one is still unacked desynchronises the packet
+  // counters (logged as "Correcting shifted tx counter") and can drop commands.
+  // Measured: a burst of 8 commands from HA lost the last one.
+  if (this->pending_set_send_ && this->state_ == ACState::Ready && !this->waiting_for_response_) {
+    this->pending_set_send_ = false;
+    send_set_command();
+  }
+
   if (millis() - this->last_read_ > READ_TIMEOUT &&
       !this->rx_buffer_.empty())  // Check if our read timed out and we received something
   {
@@ -145,23 +154,20 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
 
     const StringRef fanMode = call.get_custom_fan_mode();
 
+    // The genuine adapter's fan command is a single 0xA0 pair (00 A0 01 3x); it
+    // does NOT touch 0xB2. Writing 0xB2=0x41 here used to reset a Powerful/Quiet
+    // preset back to Normal on every fan-speed change (measured).
     if (fanMode == "Automatic") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x41);
     } else if (fanMode == "1") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x32);
     } else if (fanMode == "2") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x33);
     } else if (fanMode == "3") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x34);
     } else if (fanMode == "4") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x35);
     } else if (fanMode == "5") {
-      set_value(0xB2, 0x41);
       set_value(0xA0, 0x36);
     } else
       ESP_LOGV(TAG, "Unsupported fan mode requested");
@@ -175,16 +181,23 @@ void PanasonicACWLAN::control(const climate::ClimateCall &call) {
         set_value(0xA1, 0x41);
         break;
       case climate::CLIMATE_SWING_OFF:
+        // Measured on CS-Z42XKRW: a lone 0xA1 write is silently ignored. The AC
+        // only acts on the swing byte when a louver-position pair travels with it,
+        // and 0x42 (off) additionally requires 0x35=0x42 in the SAME packet (this
+        // is exactly what the genuine adapter sends: 00 A1 01 42 | 00 A5 01 xx |
+        // 02 35 01 42). Consequence: choosing a swing mode re-centres the louver.
         set_value(0xA1, 0x42);
+        set_value(0xA4, 0x43);
+        set_value(0xA5, 0x43);
+        set_value(0x35, 0x42, 0x02);
         break;
       case climate::CLIMATE_SWING_VERTICAL:
-        // Only touch the swing-mode key. Writing 0xA5 here would re-centre the
-        // horizontal louver the user picked (measured: setting swing VERTICAL
-        // snapped A5 back to 0x43 centre).
         set_value(0xA1, 0x43);
+        set_value(0xA5, 0x43);
         break;
       case climate::CLIMATE_SWING_HORIZONTAL:
         set_value(0xA1, 0x44);
+        set_value(0xA4, 0x43);
         break;
       default:
         ESP_LOGV(TAG, "Unsupported swing mode requested");
@@ -673,6 +686,13 @@ void PanasonicACWLAN::handle_handshake_packet() {
  */
 
 void PanasonicACWLAN::send_set_command() {
+  if (this->waiting_for_response_) {
+    // A set packet is still waiting for its ack; queue these pairs and let loop()
+    // send them as soon as the response lands. Keeps the tx/rx counters in sync.
+    this->pending_set_send_ = true;
+    return;
+  }
+
   // Size of packet is 3 * 4 (for the header, packet size, and key value pair counter)
   // setQueueIndex * 4 for the individual key value pairs
   int packetLength = (3 * 4) + (this->set_queue_index_ * 4);
