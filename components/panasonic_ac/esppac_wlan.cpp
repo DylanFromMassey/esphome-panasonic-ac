@@ -835,6 +835,17 @@ void PanasonicACWLAN::on_vertical_swing_change(const StringRef& swing) {
     set_value(0xA4, 0x44);
   else if (swing == "up")
     set_value(0xA4, 0x41);
+  else if (swing == "swing") {
+    // Continuous up/down sweep. Measured on CS-Z42XKRW: A1=0x43 ("vertical")
+    // is acked and echoed but the flap does not move; only A1=0x41 ("both")
+    // actually sweeps this unit's flap.
+    set_value(0xA1, 0x41);
+  } else if (swing == "auto") {
+    set_value(0xA1, 0x41);  // both axes sweeping (only the flap moves here)
+  } else {
+    ESP_LOGW(TAG, "Unsupported vertical swing position received");
+    return;
+  }
 
   send_set_command();
 }
