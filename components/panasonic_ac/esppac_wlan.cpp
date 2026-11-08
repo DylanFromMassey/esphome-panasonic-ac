@@ -691,14 +691,19 @@ void PanasonicACWLAN::send_set_command() {
   packet[8] = 0x30;  // Key value pair counter header
   packet[9] = 0x01;
   packet[10] = this->set_queue_index_;  // Key value pair counter
-  packet[11] = 0x00;
 
+  // Wire layout is [flag][key][0x01][value] per pair, starting at byte 11, so the
+  // flag byte belongs to the pair that follows it. The original adapter's captures
+  // show flags of 0x00 and 0x02 on individual pairs (e.g. nanoeX off is
+  // 02 33 01 42, temperature is 02 31 01 xx). Writing the flag after the value
+  // instead silently shifted it into the next pair's slot, which made it
+  // impossible to set a flag on the last (or only) pair — a single-pair write
+  // always went out as flag 0x00, which the AC accepts and then ignores.
   for (int i = 0; i < this->set_queue_index_; i++) {
-    packet[12 + (i * 4) + 0] = this->set_queue_[i][0];  // Key
-    packet[12 + (i * 4) + 1] = 0x01;                    // Unknown, always 0x01
-    packet[12 + (i * 4) + 2] = this->set_queue_[i][1];  // Value
-    packet[12 + (i * 4) + 3] =
-        this->set_queue_[i][2];  // Flag byte, either 0x00 or 0x02; overwritten by checksum on last key value pair
+    packet[11 + (i * 4) + 0] = this->set_queue_[i][2];  // Flag byte (0x00 or 0x02)
+    packet[11 + (i * 4) + 1] = this->set_queue_[i][0];  // Key
+    packet[11 + (i * 4) + 2] = 0x01;                    // Unknown, always 0x01
+    packet[11 + (i * 4) + 3] = this->set_queue_[i][1];  // Value
   }
 
   send_packet(packet, CommandType::Normal);
@@ -840,15 +845,14 @@ void PanasonicACWLAN::on_nanoex_change(bool state) {
 
   if (state) {
     ESP_LOGV(TAG, "Turning nanoex on");
-    // Measured on hardware (CS-Z42XKRW): the AC only acts on nanoeX when BOTH
-    // 0x33 and 0x20 are written in the same packet, and it reports 0x43 for on.
-    // Writing 0x33 alone is acked and silently discarded.
-    set_value(0x33, 0x43);  // nanoeX on
-    set_value(0x20, 0x43);  // nanoeX companion key, must match 0x33
+    // Genuine adapter capture (protocol/logic_analyzer/controller/nanoe_off_on.dsl):
+    //   on  -> 10.08 01 01 30 01 01 02 33 01 45
+    //   off -> 10.08 01 01 30 01 01 02 33 01 42
+    // Single pair, flag byte 0x02. The AC reports 0x43 for on and 0x42 for off.
+    set_value(0x33, 0x45, 0x02);  // nanoeX on
   } else {
     ESP_LOGV(TAG, "Turning nanoex off");
-    set_value(0x33, 0x42);  // nanoeX off
-    set_value(0x20, 0x42);  // companion key, otherwise the AC ignores 0x33
+    set_value(0x33, 0x42, 0x02);  // nanoeX off
   }
 
   send_set_command();
@@ -878,16 +882,16 @@ void PanasonicACWLAN::on_iautox_change(bool state) {
     return;
 
   // iAUTO-X and plain AUTO share mode byte 0xB0 = 0x41; the discriminator is
-  // key 0x34 (0x43 = iAUTO-X, 0x42 = plain auto). Verified by pressing the
-  // iAUTO-X button on the IR remote while capturing reports.
+  // key 0x34 (0x43 = iAUTO-X, 0x42 = plain auto). The genuine adapter sends
+  // 0x34 with flag 0x02 (see quiet_on_off_powerful_on_off.dsl: 02 34 01 42).
   if (state) {
     ESP_LOGV(TAG, "Turning iAUTO-X on");
-    set_value(0xB0, 0x41);  // mode auto
-    set_value(0x34, 0x43);  // iAUTO-X flag
-    set_value(0x80, 0x30);  // power on
+    set_value(0xB0, 0x41);        // mode auto
+    set_value(0x34, 0x43, 0x02);  // iAUTO-X flag
+    set_value(0x80, 0x30);        // power on
   } else {
     ESP_LOGV(TAG, "Turning iAUTO-X off");
-    set_value(0x34, 0x42);  // back to plain auto
+    set_value(0x34, 0x42, 0x02);  // back to plain auto
   }
 
   send_set_command();
